@@ -34,7 +34,7 @@
             display: flex;
             flex-direction: column;
             height: 100vh;
-            height: 100dvh; /* 모바일 가변 높이 대응 */
+            height: 100dvh;
             overflow: hidden;
         }
 
@@ -84,7 +84,7 @@
         .btn-secondary { background-color: #4b4b66; }
         .btn-danger { background-color: #e74c3c; }
 
-        /* 메인 워크스페이스 레이아웃 (모바일 대응: Column 구조) */
+        /* 메인 워크스페이스 레이아웃 */
         .main-container {
             display: flex;
             flex-direction: column;
@@ -95,11 +95,11 @@
 
         @media (min-width: 768px) {
             .main-container {
-                flex-direction: row; /* PC에서는 기존 Row 구조 */
+                flex-direction: row;
             }
         }
 
-        /* 툴바 (모바일에서는 상단 스크롤바, PC에서는 좌측 사이드바) */
+        /* 툴바 (반응형) */
         .toolbar {
             width: 100%;
             height: 60px;
@@ -226,11 +226,10 @@
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
-            /* 모바일에서 캔버스 드래그 시 스크롤 방지 */
-            touch-action: none; 
+            touch-action: none;
         }
 
-        /* 하단 GIF 타임라인 */
+        /* GIF 타임라인 */
         .gif-timeline {
             height: 110px;
             background-color: var(--panel-bg);
@@ -322,7 +321,7 @@
 </head>
 <body>
 
-    <!-- 헤더 -->
+    <!-- 상단 헤더 -->
     <header>
         <div class="logo">
             <i class="fa-solid fa-wand-magic-sparkles"></i> 편집기
@@ -343,11 +342,15 @@
 
     <!-- 메인 컨테이너 -->
     <div class="main-container">
-        <!-- 툴바 (모바일 대응) -->
+        <!-- 툴바 (직선 버튼 추가됨) -->
         <div class="toolbar">
             <button class="tool-btn active" data-tool="draw">
                 <i class="fa-solid fa-pen-nib"></i>
                 <span>그리기</span>
+            </button>
+            <button class="tool-btn" data-tool="line">
+                <i class="fa-solid fa-slash"></i>
+                <span>직선</span>
             </button>
             <button class="tool-btn" data-tool="eyedropper">
                 <i class="fa-solid fa-eye-dropper"></i>
@@ -418,6 +421,10 @@
         let isPointerDown = false;
         let lastX = 0, lastY = 0;
 
+        // 직선 그리기를 위한 변수
+        let lineStartX = 0, lineStartY = 0;
+        let lineStartState = null;
+
         let undoStack = [];
         const MAX_UNDO = 10;
 
@@ -452,7 +459,7 @@
             }
         }
 
-        // 이미지 파일 불러오기
+        // 이미지 불러오기
         document.getElementById('imageLoader').addEventListener('change', function(e) {
             const reader = new FileReader();
             reader.onload = function(event) {
@@ -485,7 +492,7 @@
         function updateSubOptions() {
             subOptions.innerHTML = '';
 
-            if (currentTool === 'draw') {
+            if (currentTool === 'draw' || currentTool === 'line') {
                 subOptions.innerHTML = `
                     <div class="option-group">
                         <label>색상</label>
@@ -555,7 +562,7 @@
             }
         }
 
-        // --- 터치 및 마우스 반응형 좌표 계산 (PointerEvent 사용) ---
+        // --- 터치 및 마우스 반응형 좌표 계산 ---
         function getCanvasCoords(e) {
             const rect = canvas.getBoundingClientRect();
             const scaleX = canvas.width / rect.width;
@@ -566,10 +573,10 @@
             };
         }
 
-        // Pointer Events (마우스 + 모바일 터치 통합 제어)
+        // Pointer Events (마우스 + 모바일 터치)
         canvas.addEventListener('pointerdown', (e) => {
             e.preventDefault();
-            canvas.setPointerCapture(e.pointerId); // 포인터 추적 고정
+            canvas.setPointerCapture(e.pointerId);
             isPointerDown = true;
 
             const coords = getCanvasCoords(e);
@@ -579,7 +586,13 @@
             if (currentTool === 'draw') {
                 ctx.beginPath();
                 ctx.moveTo(lastX, lastY);
-            } 
+            }
+            else if (currentTool === 'line') {
+                lineStartX = coords.x;
+                lineStartY = coords.y;
+                // 실시간 미리보기를 위해 시작 전 캔버스 상태 저장
+                lineStartState = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            }
             else if (currentTool === 'eyedropper') {
                 pickColor(coords.x, coords.y);
             }
@@ -605,6 +618,19 @@
                 ctx.lineJoin = 'round';
                 ctx.stroke();
             }
+            else if (currentTool === 'line') {
+                if (lineStartState) {
+                    // 이전 캔버스 복원 후 새로 직선 그리기 (실시간 미리보기)
+                    ctx.putImageData(lineStartState, 0, 0);
+                    ctx.beginPath();
+                    ctx.moveTo(lineStartX, lineStartY);
+                    ctx.lineTo(coords.x, coords.y);
+                    ctx.strokeStyle = brushColor;
+                    ctx.lineWidth = brushSize;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+            }
             else if (currentTool === 'stretch') {
                 applyLiquify(lastX, lastY, coords.x, coords.y, stretchRadius, stretchStrength);
                 lastX = coords.x;
@@ -616,16 +642,18 @@
             if (isPointerDown) {
                 isPointerDown = false;
                 try { canvas.releasePointerCapture(e.pointerId); } catch(err) {}
-                if (currentTool === 'draw' || currentTool === 'stretch') {
+                
+                if (currentTool === 'draw' || currentTool === 'stretch' || currentTool === 'line') {
                     saveState();
                 }
+                lineStartState = null;
             }
         };
 
         canvas.addEventListener('pointerup', handlePointerUp);
         canvas.addEventListener('pointercancel', handlePointerUp);
 
-        // --- 기능 1: 늘이기 (Liquify / Push Warp) ---
+        // --- 기능 1: 늘이기 (Liquify) ---
         function applyLiquify(startX, startY, endX, endY, radius, strength) {
             const dx = endX - startX;
             const dy = endY - startY;
